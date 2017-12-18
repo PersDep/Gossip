@@ -8,7 +8,7 @@ import sys
 probabilities = [0.0, 0.1, 0.2, 0.3, 0.4, 0.5, 0.6]
 ticks = []
 
-iters = 20
+iters = 32
 
 nodes_amount = "40"
 port = "4400"
