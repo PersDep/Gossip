@@ -4,6 +4,7 @@ import (
 	"./graph"
 	"fmt"
 	"math/rand"
+	"os"
 	"strconv"
 	"time"
 )
@@ -16,13 +17,14 @@ func print(graph graph.Graph) {
 }
 
 func main() {
-	var nodesAmount, port, minDegree, maxDegree int
-	var errors [4]error
+	var nodesAmount, port, minDegree, maxDegree, ttl int
+	var errors [5]error
 
-	nodesAmount, errors[0] = strconv.Atoi("50")
-	port, errors[1] = strconv.Atoi("4400")
-	minDegree, errors[2] = strconv.Atoi("5")
-	maxDegree, errors[3] = strconv.Atoi("7")
+	nodesAmount, errors[0] = strconv.Atoi(os.Args[1])
+	port, errors[1] = strconv.Atoi(os.Args[2])
+	minDegree, errors[2] = strconv.Atoi(os.Args[3])
+	maxDegree, errors[3] = strconv.Atoi(os.Args[4])
+	ttl, errors[4] = strconv.Atoi(os.Args[5])
 
 	for _, error := range errors {
 		if error != nil {
@@ -31,7 +33,19 @@ func main() {
 	}
 
 	rand.Seed(int64(time.Now().Nanosecond()))
-
 	graph := graph.Generate(nodesAmount, minDegree, maxDegree, port)
-	print(graph)
+
+	quitChan := make(chan struct{})
+	killChan := make(chan struct{}, nodesAmount)
+
+	for i := 0; i < nodesAmount; i++ {
+		go runGossipNerwork(i, graph, quitChan, killChan, ttl, i == 0)
+	}
+
+	<-quitChan
+	for i := 0; i < nodesAmount; i++ {
+		killChan <- struct{}{}
+	}
+
+	time.Sleep(time.Millisecond * 100)
 }

@@ -12,7 +12,7 @@ type Message struct {
 	Data   string `json:"data"`
 }
 
-func (msg Message) ToJsonMsg() []byte {
+func (msg Message) ConvertToJsonMsg() []byte {
 	buf, error := json.Marshal(msg)
 
 	if error != nil {
@@ -22,13 +22,13 @@ func (msg Message) ToJsonMsg() []byte {
 	return buf
 }
 
-func FromJsonMsg(buf []byte) Message {
-	var msg Message
-	error := json.Unmarshal(buf, &msg)
+func ConvertFromJsonMsg(buf []byte) Message {
+	msg := &Message{}
+	error := json.Unmarshal(buf, msg)
 
 	if error != nil {
 		panic(error)
 	}
 
-	return msg
+	return *msg
 }
