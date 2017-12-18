@@ -1,0 +1,5 @@
+#!/bin/bash
+
+go build main.go gossip.go
+sudo ./init.py $1 $2 $3 $4 $5
+rm -rf main
