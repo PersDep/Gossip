@@ -50,9 +50,9 @@ func runGossipNerwork(curID int, graph graph.Graph, quitChan, killChan chan stru
 	dataChannel := make(chan message.Message)
 	taskChannel := make(chan task, myConst)
 	timeoutChannel := make(chan time.Duration, 1)
-	timeoutChannel <- time.Millisecond * 50
 	quitChannel1 := make(chan struct{}, 1)
 	quitChannel2 := make(chan struct{}, 1)
+	timeoutChannel <- time.Millisecond * 50
 	go manageConnection(curConnection, dataChannel, timeoutChannel, quitChannel1)
 	go sendQueueMessages(curConnection, taskChannel, time.Microsecond*10, quitChannel2)
 	time.Sleep(time.Millisecond * 10)
@@ -71,9 +71,8 @@ func runGossipNerwork(curID int, graph graph.Graph, quitChan, killChan chan stru
 		nodesReceptionStatus[curID] = true
 	}
 
-	//ttlMap := make(map[int]int)
+	ttlMap := make(map[int]int)
 	ticks := 0
-MessageProcessing:
 	for {
 		select {
 		case message := <-dataChannel:
@@ -85,11 +84,14 @@ MessageProcessing:
 				default:
 					{
 						if message.Type == "message" {
-							//MessageConfirm
+							messageSendConfirm(message, curID, neighboursAdresses, ttl, ttlMap, taskChannel)
 						} else if message.Type == "confirmative" {
-							if true {
-								fmt.Println("Finished in", ticks, "ticks")
-								break MessageProcessing
+							if confirmMessageReceptionForAllNodes(message, curID, neighboursAdresses, nodesReceptionStatus, ttl, ttlMap, taskChannel) {
+								fmt.Println("Finished ticks: ", ticks)
+								quitChannel1 <- struct{}{}
+								quitChannel2 <- struct{}{}
+								quitChan <- struct{}{}
+								return
 							}
 						} else if message.Type != "timeout" {
 							panic("Unknown message type" + message.Type)
@@ -100,15 +102,9 @@ MessageProcessing:
 		}
 		ticks++
 	}
-
-	quitChannel1 <- struct{}{}
-	quitChannel2 <- struct{}{}
-	quitChan <- struct{}{}
 }
 
 func sendQueueMessages(curConnection *net.UDPConn, taskChannel chan task, interval time.Duration, quitChan chan struct{}) {
-	var buf = make([]byte, myConst)
-
 	for {
 		select {
 		case _ = <-quitChan:
@@ -116,7 +112,7 @@ func sendQueueMessages(curConnection *net.UDPConn, taskChannel chan task, interv
 		case task := <-taskChannel:
 			{
 				time.Sleep(interval)
-				buf = task.message.ConvertToJsonMsg()
+				buf := task.message.ConvertToJsonMsg()
 				_, error := curConnection.WriteToUDP(buf, &task.destination)
 				if error != nil {
 					panic(error)
@@ -162,4 +158,63 @@ func manageConnection(Conn *net.UDPConn, dataChannel chan message.Message, timeo
 			}
 		}
 	}
+}
+
+func addTTL(ttlMap map[int]int, ttl int, ttlVal int) {
+	_, keyExists := ttlMap[ttlVal]
+	if !keyExists {
+		ttlMap[ttlVal] = ttl
+	}
+}
+
+func messageSendConfirm(msg message.Message, curID int, neighboursAdresses []net.UDPAddr, ttl int, ttlMap map[int]int, taskChannel chan task) {
+	addTTL(ttlMap, ttl, msg.ID)
+
+	if ttlMap[msg.ID] > 0 {
+		for ttlMap[msg.ID] > 0 {
+			msg.Sender = curID
+			taskChannel <- task{msg, neighboursAdresses[rand.Intn(len(neighboursAdresses))]}
+			ttlMap[msg.ID]--
+		}
+
+		confirmationID := msg.ID + myConst + curID
+		addTTL(ttlMap, ttl, confirmationID)
+
+		msg := message.Message{ID: confirmationID, Type: "confirmative", Sender: curID, Origin: msg.Origin, Data: strconv.Itoa(curID)}
+		for ttlMap[confirmationID] > 0 {
+			taskChannel <- task{msg, neighboursAdresses[rand.Intn(len(neighboursAdresses))]}
+			ttlMap[confirmationID]--
+		}
+	}
+}
+
+func confirmMessageReceptionForAllNodes(
+	msg message.Message, curID int,
+	neighboursAdresses []net.UDPAddr,
+	nodesReceptionStatus []bool,
+	ttl int, ttlMap map[int]int,
+	taskChannel chan task) bool {
+
+	if msg.Origin == curID {
+		confirmationID, error := strconv.Atoi(msg.Data)
+		if error != nil {
+			panic(error)
+		}
+
+		nodesReceptionStatus[confirmationID] = true
+		for i := range nodesReceptionStatus {
+			if !nodesReceptionStatus[i] {
+				return false
+			}
+		}
+		return true
+	}
+
+	addTTL(ttlMap, ttl, msg.ID)
+	for ttlMap[msg.ID] > 0 {
+		msg.Sender = curID
+		taskChannel <- task{msg, neighboursAdresses[rand.Intn(len(neighboursAdresses))]}
+		ttlMap[msg.ID]--
+	}
+	return false
 }
